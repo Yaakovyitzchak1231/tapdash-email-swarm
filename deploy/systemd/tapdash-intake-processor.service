@@ -1,0 +1,17 @@
+[Unit]
+Description=TapDash Intake Stream Processor
+After=network.target
+
+[Service]
+Type=simple
+User=tapdash
+Group=tapdash
+WorkingDirectory=/opt/tapdash-swarm
+EnvironmentFile=/etc/tapdash/swarm.env
+ExecStart=/usr/bin/python3 /opt/tapdash-swarm/intake_stream_processor.py --interval-seconds 10
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

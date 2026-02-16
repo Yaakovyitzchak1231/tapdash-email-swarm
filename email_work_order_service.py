@@ -101,8 +101,14 @@ def normalize_zapier_email_event(payload: dict[str, Any]) -> dict[str, Any]:
         or payload.get("text")
         or ""
     ).strip()
+    # Prefer Zapier-provided unique identifiers when present.
+    # Some email triggers re-use Outlook message IDs across test sends, which
+    # would cause our downstream dedupe to drop legitimately new events.
     event_id = (
-        payload.get("event_id")
+        payload.get("zap_event_id")
+        or payload.get("zap_meta_human_now")
+        or payload.get("zap_id")
+        or payload.get("event_id")
         or payload.get("message_id")
         or payload.get("messageId")
         or payload.get("id")

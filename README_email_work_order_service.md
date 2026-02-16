@@ -146,3 +146,12 @@ On approve/edit_approve:
 - appends review event to `pipeline_out/review_actions.jsonl`
 - writes precedent to `memory/precedents.jsonl`
 - writes publish payload to `pipeline_out/draft_publish_payloads.jsonl` when missing
+
+## Production Hosting
+
+For always-on deployment with `systemd` and Cloudflare tunnel, use:
+
+- `deploy/README.md`
+- `deploy/install_services.sh`
+- `deploy/install_cloudflared.sh`
+- `deploy/systemd/*.service`

@@ -1,0 +1,17 @@
+[Unit]
+Description=TapDash Swarm Monitor
+After=network.target
+
+[Service]
+Type=simple
+User=tapdash
+Group=tapdash
+WorkingDirectory=/opt/tapdash-swarm
+EnvironmentFile=/etc/tapdash/swarm.env
+ExecStart=/usr/bin/bash /opt/tapdash-swarm/swarm_monitor_pipeline.sh
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

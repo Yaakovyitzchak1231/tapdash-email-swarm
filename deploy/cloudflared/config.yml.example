@@ -1,0 +1,7 @@
+tunnel: tapdash-email-intake
+credentials-file: /root/.cloudflared/<TUNNEL-UUID>.json
+
+ingress:
+  - hostname: webhook.tapdash.co
+    service: http://127.0.0.1:8080
+  - service: http_status:404

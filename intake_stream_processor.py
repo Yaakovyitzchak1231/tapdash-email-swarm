@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,27 +18,6 @@ PROCESSED_KEYS_PATH = STATE_DIR / "processed_keys.json"
 ACTIONABLE_PATH = STATE_DIR / "actionable_work_orders.jsonl"
 REJECTED_PATH = STATE_DIR / "rejected_work_orders.jsonl"
 STATS_PATH = STATE_DIR / "intake_stats.json"
-
-NOISE_SENDER_TOKENS = (
-    "no-reply",
-    "noreply",
-    "do-not-reply",
-    "donotreply",
-    "notifications@",
-)
-NOISE_SUBJECT_TOKENS = (
-    "newsletter",
-    "weekly digest",
-    "unsubscribe",
-    "your receipt",
-    "promo",
-    "webinar",
-)
-PLACEHOLDER_VALUES = {
-    "sender email",
-    "subject",
-    "outlook message id",
-}
 
 
 @dataclass
@@ -54,7 +34,10 @@ def _utc_now() -> str:
 def _load_json(path: Path, default: Any) -> Any:
     if not path.exists():
         return default
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return default
 
 
 def _save_json(path: Path, data: Any) -> None:
@@ -69,9 +52,12 @@ def _iter_jsonl(path: Path) -> list[dict[str, Any]]:
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
-        parsed = json.loads(line)
-        if isinstance(parsed, dict):
-            rows.append(parsed)
+        try:
+            parsed = json.loads(line)
+            if isinstance(parsed, dict):
+                rows.append(parsed)
+        except Exception:
+            continue
     return rows
 
 
@@ -92,15 +78,35 @@ def _has_placeholder_mapping(order: dict[str, Any]) -> bool:
     sender = str(order.get("sender", "")).strip().lower()
     subject = str(order.get("subject", "")).strip().lower()
     event_id = str(order.get("email_event_id", "")).strip().lower()
-    return sender in PLACEHOLDER_VALUES or subject in PLACEHOLDER_VALUES or event_id in PLACEHOLDER_VALUES
+    placeholders = {
+        "sender email",
+        "subject",
+        "outlook message id",
+    }
+    return sender in placeholders or subject in placeholders or event_id in placeholders
 
 
 def _is_noise(order: dict[str, Any]) -> bool:
     sender = str(order.get("sender", "")).strip().lower()
     subject = str(order.get("subject", "")).strip().lower()
-    if any(token in sender for token in NOISE_SENDER_TOKENS):
+    noise_senders = (
+        "no-reply",
+        "noreply",
+        "do-not-reply",
+        "donotreply",
+        "notifications@",
+    )
+    noise_subjects = (
+        "newsletter",
+        "weekly digest",
+        "unsubscribe",
+        "your receipt",
+        "promo",
+        "webinar",
+    )
+    if any(token in sender for token in noise_senders):
         return True
-    if any(token in subject for token in NOISE_SUBJECT_TOKENS):
+    if any(token in subject for token in noise_subjects):
         return True
     return False
 
@@ -145,7 +151,6 @@ def process_once(work_order_store: Path = WORK_ORDER_STORE) -> dict[str, int]:
             _append_jsonl(ACTIONABLE_PATH, record)
         elif decision.reason == "duplicate":
             stats["rejected_duplicate"] += 1
-            _append_jsonl(REJECTED_PATH, record)
         elif decision.reason == "invalid_mapping":
             stats["rejected_invalid_mapping"] += 1
             _append_jsonl(REJECTED_PATH, record)
@@ -160,6 +165,18 @@ def process_once(work_order_store: Path = WORK_ORDER_STORE) -> dict[str, int]:
     return stats
 
 
+def run_loop(interval_seconds: int) -> None:
+    print(f"intake_stream_processor started: polling every {interval_seconds}s")
+    while True:
+        try:
+            stats = process_once()
+            if stats["actionable"] > 0:
+                print(f"processed {stats['actionable']} new actionable work orders at {_utc_now()}")
+        except Exception as exc:
+            print(f"Error in intake loop: {exc}")
+        time.sleep(interval_seconds)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Process inbound work orders.")
     parser.add_argument(
@@ -168,10 +185,24 @@ def main() -> None:
         default=WORK_ORDER_STORE,
         help="Path to work orders JSONL file",
     )
+    parser.add_argument(
+        "--interval-seconds",
+        type=int,
+        default=None,
+        help="Polling interval in seconds for daemon mode",
+    )
     args = parser.parse_args()
 
-    stats = process_once(work_order_store=args.store)
-    print(json.dumps(stats, separators=(",", ":")))
+    if args.interval_seconds:
+        run_loop(args.interval_seconds)
+    else:
+        stats = process_once(work_order_store=args.store)
+        print(json.dumps(stats, separators=(",", ":")))
+
+
+if __name__ == "__main__":
+    main()
+
 
 
 if __name__ == "__main__":

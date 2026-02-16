@@ -1,0 +1,18 @@
+[Unit]
+Description=TapDash Monday CRM Enrichment Service
+After=network.target
+
+[Service]
+Type=simple
+User=tapdash
+Group=tapdash
+WorkingDirectory=/opt/tapdash-swarm
+EnvironmentFile=/etc/tapdash/swarm.env
+Environment=PORT=8095
+ExecStart=/usr/bin/python3 /opt/tapdash-swarm/monday_crm_enrichment_service.py
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
