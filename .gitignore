@@ -1,0 +1,26 @@
+# Secrets
+.env*
+*.pem
+*.key
+
+# Relay/runtime
+.agent-relay/
+.relay/
+outbox/
+msg
+spawn
+release
+
+# Python
+__pycache__/
+*.pyc
+
+# Runtime outputs
+*.log
+*.jsonl
+*.db
+intake_state/
+pipeline_out/
+
+# OS/editor
+.DS_Store
