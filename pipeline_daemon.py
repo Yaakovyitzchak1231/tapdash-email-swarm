@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,8 +14,9 @@ from typing import Any
 from escalation_policy import classify_text, load_policy
 from precedent_memory import lookup_precedent
 
-ACTIONABLE_PATH = Path("/home/jacob/intake_state/actionable_work_orders.jsonl")
-PIPELINE_DIR = Path("/home/jacob/pipeline_out")
+INTAKE_STATE_DIR = Path(os.environ.get("INTAKE_STATE_DIR", "/home/jacob/intake_state"))
+ACTIONABLE_PATH = INTAKE_STATE_DIR / "actionable_work_orders.jsonl"
+PIPELINE_DIR = Path(os.environ.get("PIPELINE_DIR", "/home/jacob/pipeline_out"))
 STATE_PATH = PIPELINE_DIR / "daemon_state.json"
 
 
