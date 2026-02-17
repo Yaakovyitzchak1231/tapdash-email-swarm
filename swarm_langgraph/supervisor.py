@@ -55,7 +55,7 @@ class SwarmSupervisor:
         }
 
     def _persist_ctx_state(self, run_id: str, work_order_id: str, ctx: StageContext) -> None:
-        stage_order = ["context", "draft", "qa", "policy", "publish"]
+        stage_order = ["context", "monday_context", "draft", "qa", "policy", "publish"]
         for stage in stage_order:
             if stage not in ctx.state:
                 continue

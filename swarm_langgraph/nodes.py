@@ -13,6 +13,7 @@ from orchestrator.stages import (
     ToneStage,
 )
 
+from .monday_agents import monday_coordinator_agent
 from .state import SwarmState
 
 
@@ -36,6 +37,21 @@ class SwarmNodes:
     def context_agent(self, state: SwarmState) -> dict[str, Any]:
         result = self._context.run(state["ctx"])
         return {"last_result": result}
+
+    def monday_coordinator_agent(self, state: SwarmState) -> dict[str, Any]:
+        ctx = state["ctx"]
+        monday_context = monday_coordinator_agent(ctx.work_order)
+        ctx.state["monday_context"] = monday_context
+
+        base_context = ctx.state.get("context")
+        if isinstance(base_context, dict):
+            context_obj = base_context.setdefault("context", {})
+            if isinstance(context_obj, dict):
+                crm_enriched_fields = context_obj.setdefault("crm_enriched_fields", {})
+                if isinstance(crm_enriched_fields, dict):
+                    crm_enriched_fields.update(monday_context.get("crm_context", {}))
+                context_obj["monday_swarm"] = monday_context
+        return {"last_result": None}
 
     def draft_agent(self, state: SwarmState) -> dict[str, Any]:
         result = self._draft.run(state["ctx"])

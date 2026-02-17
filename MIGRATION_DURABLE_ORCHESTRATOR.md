@@ -24,6 +24,7 @@ Migrate from JSONL daemon-only orchestration to durable Postgres-backed workflow
 - `swarm_langgraph/` package:
   - `graph.py`: LangGraph graph (fallback executor if dependency missing).
   - `nodes.py`: specialist agents (tier/context/draft/tone/fact/qa/policy/publish).
+  - `monday_agents.py`: Monday coordinator + subagents for contact/deal/update context.
   - `supervisor.py`: supervisor execution + artifact/event persistence.
   - `queue.py`: in-memory and Postgres `swarm_jobs` queue with retry/dead-letter.
   - `worker.py`: queue consumer loop for production worker service.

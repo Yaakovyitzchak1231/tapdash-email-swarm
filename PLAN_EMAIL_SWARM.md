@@ -61,6 +61,7 @@ The system now supports intelligent LLM drafting, but it still needs durable sta
   - Added migration/cutover document with rollback-safe strategy.
   - Added `swarm_langgraph/` supervisor + specialist runtime and queue worker scaffold.
   - Added `swarm_jobs` queue schema with retry/dead-letter lifecycle.
+  - Added Monday specialist layer in swarm (`monday_coordinator_agent` + contact/deal/updates subagents).
 
 ## Not Started
 - Outlook/Graph thread retrieval and draft-in-thread publish path.
