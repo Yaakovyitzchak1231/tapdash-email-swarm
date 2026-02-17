@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -150,6 +151,73 @@ def _clean_confidence(value: Any, default: float = 0.5) -> float:
     return numeric
 
 
+def _enforce_exact_signature(body: str) -> str:
+    text = body.rstrip()
+    if text.endswith(SIGNATURE_BLOCK):
+        return text
+    marker_index = text.find(SIGNATURE_BLOCK)
+    if marker_index >= 0:
+        base = text[:marker_index].rstrip()
+        return f"{base}\n\n{SIGNATURE_BLOCK}"
+    if not text:
+        return SIGNATURE_BLOCK
+    return f"{text}\n\n{SIGNATURE_BLOCK}"
+
+
+def quality_gate_agent(work_order: dict[str, Any], draft_body: str) -> dict[str, Any]:
+    body_lower = draft_body.lower()
+    generic_phrases = (
+        "thanks for reaching out",
+        "we received your message",
+        "can help with next steps",
+        "route this to the right team",
+    )
+    generic_phrase_hits = [phrase for phrase in generic_phrases if phrase in body_lower]
+    generic_fluff = len(generic_phrase_hits) >= 2
+
+    actionable_markers = (
+        "please share",
+        "please send",
+        "reply with",
+        "can you",
+        "could you",
+        "let me know",
+        "confirm",
+        "book",
+        "schedule",
+    )
+    has_actionable_cta = any(marker in body_lower for marker in actionable_markers) or "?" in draft_body
+    missing_actionable_cta = not has_actionable_cta
+
+    sender = str(work_order.get("sender", "")).strip().lower()
+    personalized_tokens = {token for token in re.findall(r"[a-z0-9]{4,}", sender) if token not in {"gmail", "yahoo", "outlook"}}
+    subject = str(work_order.get("subject", "")).strip().lower()
+    personalized_tokens.update(
+        token
+        for token in re.findall(r"[a-z0-9]{5,}", subject)
+        if token not in {"regarding", "meeting", "question", "request", "follow", "followup", "fwd"}
+    )
+    weak_personalization = bool(personalized_tokens) and not any(token in body_lower for token in personalized_tokens)
+
+    issues: list[str] = []
+    if generic_fluff:
+        issues.append("generic_fluff")
+    if missing_actionable_cta:
+        issues.append("missing_actionable_cta")
+    if weak_personalization:
+        issues.append("weak_personalization")
+    return {
+        "quality_pass": not issues,
+        "quality_status": "pass" if not issues else "needs_review",
+        "quality_issues": issues,
+        "quality_signals": {
+            "generic_phrase_hits": generic_phrase_hits,
+            "has_actionable_cta": has_actionable_cta,
+            "personalization_tokens": sorted(personalized_tokens),
+        },
+    }
+
+
 def _openai_draft(work_order: dict[str, Any], context: dict[str, Any], policy_tier: str) -> dict[str, Any]:
     sender = work_order.get("sender", "there")
     subject = work_order.get("subject", "")
@@ -159,8 +227,11 @@ def _openai_draft(work_order: dict[str, Any], context: dict[str, Any], policy_ti
             "content": (
                 "You draft concise business email replies. "
                 "Tone rules: professional, concise, friendly undertone, clear CTA, no em dashes. "
+                "Avoid generic fluff and empty acknowledgments. "
+                "Include at least one specific personalized detail grounded in sender, subject, or context. "
+                "Include exactly one concrete next step CTA the recipient can act on now. "
                 "Never use placeholders like [Your Name], [Company], or bracketed template fields. "
-                f"Always end with this exact signature block: '{SIGNATURE_BLOCK}'. "
+                f"Draft body must end with this exact signature block, byte-for-byte: '{SIGNATURE_BLOCK}'. "
                 "Return only JSON with keys: draft_subject, draft_body, confidence, rationale, citations."
             ),
         },
@@ -226,7 +297,7 @@ def _openai_draft(work_order: dict[str, Any], context: dict[str, Any], policy_ti
         raise RuntimeError("No completion content returned by OpenAI.")
     draft_json = json.loads(raw_content)
     draft_subject = str(draft_json.get("draft_subject") or f"Re: {subject}")
-    draft_body = str(draft_json.get("draft_body") or "")
+    draft_body = _enforce_exact_signature(str(draft_json.get("draft_body") or ""))
     if not draft_body.strip():
         raise RuntimeError("OpenAI returned an empty draft body.")
     return {
@@ -298,17 +369,28 @@ def fact_agent(draft: dict[str, Any], decision_tier: str, wo_id: str) -> dict[st
     return fact_checked
 
 
-def qa_agent(draft: dict[str, Any], tone_checked: dict[str, Any], fact_checked: dict[str, Any]) -> dict[str, Any]:
+def qa_agent(
+    work_order: dict[str, Any],
+    draft: dict[str, Any],
+    tone_checked: dict[str, Any],
+    fact_checked: dict[str, Any],
+) -> dict[str, Any]:
     confidence = _clean_confidence(draft.get("confidence"), default=0.5)
     tone_ok = bool(tone_checked.get("tone_ok"))
     fact_ok = fact_checked.get("fact_status") == "pass"
-    qa_pass = tone_ok and confidence >= 0.5
+    quality_gate = quality_gate_agent(work_order=work_order, draft_body=str(tone_checked.get("revised_draft", "")))
+    qa_pass = tone_ok and confidence >= 0.5 and quality_gate["quality_pass"]
     qa_score = int(round((confidence * 100)))
     qa_reasons = ["style_compliant"] if tone_ok else ["style_violation"]
     if fact_ok:
         qa_reasons.append("fact_gate_pass")
     else:
         qa_reasons.append("fact_gate_needs_review")
+    if quality_gate["quality_pass"]:
+        qa_reasons.append("quality_gate_pass")
+    else:
+        qa_reasons.append("quality_gate_needs_review")
+        qa_reasons.extend(quality_gate["quality_issues"])
     qa_result = dict(draft)
     qa_result.update(
         {
@@ -316,6 +398,9 @@ def qa_agent(draft: dict[str, Any], tone_checked: dict[str, Any], fact_checked: 
             "qa_pass": qa_pass,
             "qa_status": "pass" if qa_pass else "needs_review",
             "qa_reasons": qa_reasons,
+            "quality_status": quality_gate["quality_status"],
+            "quality_issues": quality_gate["quality_issues"],
+            "quality_signals": quality_gate["quality_signals"],
             "qa_source_input": str(PIPELINE_DIR / "drafts.jsonl"),
             "qa_fallback_used": draft.get("draft_agent") != "openai",
         }
@@ -344,7 +429,12 @@ def policy_agent(
         or not qa_result["qa_pass"]
         or draft_confidence < DRAFT_MIN_CONFIDENCE
     )
-    if decision_tier in {"A", "B"} and has_auto_precedent and draft_confidence >= DRAFT_MIN_CONFIDENCE:
+    if (
+        decision_tier in {"A", "B"}
+        and has_auto_precedent
+        and draft_confidence >= DRAFT_MIN_CONFIDENCE
+        and qa_result.get("quality_status", "pass") == "pass"
+    ):
         needs_human_review = False
     return {
         "needs_human_review": needs_human_review,
@@ -360,6 +450,8 @@ def policy_agent(
         "precedent_found": precedent.found,
         "precedent_confidence": precedent.confidence,
         "draft_confidence": draft_confidence,
+        "quality_status": qa_result.get("quality_status", "pass"),
+        "quality_issues": qa_result.get("quality_issues", []),
         "detected_at": _now(),
     }
 
@@ -383,6 +475,8 @@ def publish_agent(
             "policy_tier": policy_result["policy_tier"],
             "qa_status": qa_result["qa_status"],
             "fact_status": fact_checked["fact_status"],
+            "quality_status": qa_result.get("quality_status", "pass"),
+            "quality_issues": qa_result.get("quality_issues", []),
             "draft_agent": draft.get("draft_agent"),
             "draft_confidence": policy_result["draft_confidence"],
             "auto_send_enabled": AUTO_SEND_ENABLED,
@@ -443,6 +537,7 @@ def process_work_order(work_order: dict[str, Any], policy: dict[str, Any]) -> di
     _append_jsonl(PIPELINE_DIR / "fact_checked.jsonl", fact_checked)
 
     qa_result = qa_agent(
+        work_order=work_order,
         draft=draft,
         tone_checked=tone_checked,
         fact_checked=fact_checked,

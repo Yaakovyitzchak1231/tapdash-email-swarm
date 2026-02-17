@@ -1,6 +1,7 @@
 # Inbound Email -> Work Orders
 
 > Canonical plan: `PLAN_EMAIL_SWARM.md` is the single source of truth for architecture and roadmap. This README documents the current implementation baseline only.
+> Durable orchestration migration: `MIGRATION_DURABLE_ORCHESTRATOR.md` tracks the pivot plan and rollback-safe cutover path.
 
 This service monitors inbound email events via HTTP and creates work orders with preliminary labels.
 
@@ -116,6 +117,39 @@ Run as daemon (polling):
 
 ```bash
 python3 pipeline_daemon.py --interval-seconds 10
+```
+
+## Durable Orchestrator Scaffold (Phase 2 pivot)
+
+New scaffold path (does not replace production daemon yet):
+
+- `orchestrator/` package
+- `orchestrator_runner.py`
+
+Dry run (in-memory, no DB writes):
+
+```bash
+python3 orchestrator_runner.py --dry-run
+```
+
+Postgres-backed run:
+
+```bash
+DATABASE_URL=postgresql://... python3 orchestrator_runner.py
+```
+
+## Agent Swarm Worker (LangGraph path)
+
+Draft-only swarm worker path (keeps legacy daemon as fallback):
+
+```bash
+DATABASE_URL=postgresql://... python3 swarm_worker_runner.py --once
+```
+
+Loop mode:
+
+```bash
+DATABASE_URL=postgresql://... python3 swarm_worker_runner.py --interval-seconds 10
 ```
 
 ## Human Review Actions API
