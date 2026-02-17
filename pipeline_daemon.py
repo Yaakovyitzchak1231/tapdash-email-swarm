@@ -123,6 +123,19 @@ def process_work_order(work_order: dict[str, Any], policy: dict[str, Any]) -> di
         policy,
     )
     draft = _build_draft(work_order, policy_tier=decision.tier)
+    # Threading metadata passthrough if present on the work order
+    for key in (
+        "message_id",
+        "conversation_id",
+        "from_addr",
+        "to_addrs",
+        "cc_addrs",
+        "in_reply_to",
+        "references",
+        "email_event_id",
+    ):
+        if key in work_order:
+            draft[key] = work_order.get(key)
     _append_jsonl(PIPELINE_DIR / "drafts.jsonl", draft)
 
     tone_checked = dict(draft)
@@ -215,7 +228,20 @@ def process_work_order(work_order: dict[str, Any], policy: dict[str, Any]) -> di
                 "fact_status": fact_checked["fact_status"],
             },
             "created_at": _now(),
+            "send": True,
         }
+        for key in (
+            "message_id",
+            "conversation_id",
+            "from_addr",
+            "to_addrs",
+            "cc_addrs",
+            "in_reply_to",
+            "references",
+            "email_event_id",
+        ):
+            if key in work_order:
+                publish_row[key] = work_order.get(key)
         _append_jsonl(PIPELINE_DIR / "draft_publish_payloads.jsonl", publish_row)
 
     return {

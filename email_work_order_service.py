@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 from uuid import uuid4
 
 STORE_PATH = Path(os.environ.get("WORK_ORDER_STORE", "work_orders.jsonl"))
@@ -38,6 +38,13 @@ class WorkOrder:
     labels: list[str]
     status: str
     email_event_id: str | None = None
+    message_id: str | None = None
+    conversation_id: str | None = None
+    from_addr: str | None = None
+    to_addrs: list[str] | None = None
+    cc_addrs: list[str] | None = None
+    in_reply_to: str | None = None
+    references: str | None = None
 
 
 def _tokenize(text: str) -> set[str]:
@@ -81,12 +88,29 @@ def create_work_order(email_event: dict[str, Any]) -> WorkOrder:
         labels=preliminary_labels(sender=sender, subject=subject, body=body),
         status="new",
         email_event_id=str(event_id) if event_id is not None else None,
+        message_id=email_event.get("message_id"),
+        conversation_id=email_event.get("conversation_id"),
+        from_addr=email_event.get("from_addr") or sender,
+        to_addrs=email_event.get("to_addrs"),
+        cc_addrs=email_event.get("cc_addrs"),
+        in_reply_to=email_event.get("in_reply_to"),
+        references=email_event.get("references"),
     )
     _persist_work_order(work_order)
     return work_order
 
 
 def normalize_zapier_email_event(payload: dict[str, Any]) -> dict[str, Any]:
+    def _as_list(val: Any) -> Optional[list[str]]:
+        if val is None:
+            return None
+        if isinstance(val, str):
+            return [val.strip()] if val.strip() else None
+        if isinstance(val, list):
+            cleaned = [str(x).strip() for x in val if str(x).strip()]
+            return cleaned or None
+        return None
+
     sender = str(
         payload.get("from_email")
         or payload.get("from")
@@ -113,11 +137,26 @@ def normalize_zapier_email_event(payload: dict[str, Any]) -> dict[str, Any]:
         or payload.get("messageId")
         or payload.get("id")
     )
+    message_id = payload.get("message_id") or payload.get("messageId")
+    conversation_id = payload.get("conversation_id") or payload.get("conversationId")
+
     return {
         "event_id": str(event_id) if event_id is not None else None,
         "sender": sender,
         "subject": subject,
         "body": body,
+        "message_id": str(message_id) if message_id else None,
+        "conversation_id": str(conversation_id) if conversation_id else None,
+        "from_addr": sender,
+        "to_addrs": _as_list(
+            payload.get("to")
+            or payload.get("to_email")
+            or payload.get("to_emails")
+            or payload.get("recipients")
+        ),
+        "cc_addrs": _as_list(payload.get("cc") or payload.get("cc_emails")),
+        "in_reply_to": payload.get("in_reply_to") or payload.get("inReplyTo"),
+        "references": payload.get("references"),
     }
 
 
