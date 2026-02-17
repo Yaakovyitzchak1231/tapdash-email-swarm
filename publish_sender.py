@@ -67,12 +67,25 @@ def send_payload(payload: dict[str, Any]) -> bool:
         return False
 
 
+def _should_send(row: dict[str, Any]) -> bool:
+    raw = row.get("send", True)
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str):
+        return raw.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(raw)
+
+
 def process_once() -> int:
     sent_ids = _load_state()
     count = 0
     for row in _iter_jsonl(PUBLISH_FILE):
         wo_id = str(row.get("work_order_id") or "").strip()
         if not wo_id or wo_id in sent_ids:
+            continue
+        if not _should_send(row):
+            print(f"publish_sender: send=false for {wo_id}; skipping webhook send")
+            sent_ids.add(wo_id)
             continue
         if send_payload(row):
             sent_ids.add(wo_id)

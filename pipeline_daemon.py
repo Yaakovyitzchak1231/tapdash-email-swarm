@@ -24,6 +24,8 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4.1-mini")
 OPENAI_TIMEOUT_SECONDS = int(os.environ.get("OPENAI_TIMEOUT_SECONDS", "25"))
 DRAFT_MIN_CONFIDENCE = float(os.environ.get("DRAFT_MIN_CONFIDENCE", "0.65"))
+AUTO_SEND_ENABLED = os.environ.get("AUTO_SEND_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+SIGNATURE_BLOCK = os.environ.get("SIGNATURE_BLOCK", "Best,\nYaakov\nyaakov@tapdash.co")
 
 
 def _now() -> str:
@@ -98,14 +100,14 @@ def _build_template_draft(work_order: dict[str, Any], policy_tier: str) -> dict[
             f"Hi {sender},\n\n"
             "Thanks for reaching out. We received your message. "
             "Please share two or three time windows this week and we will confirm one.\n\n"
-            "Best,\nTapDash Team"
+            f"{SIGNATURE_BLOCK}"
         )
     else:
         body = (
             f"Hi {sender},\n\n"
             "Thanks for reaching out. We received your message and can help with next steps. "
             "Share your goal and preferred timeline, and we will route this to the right team.\n\n"
-            "Best,\nTapDash Team"
+            f"{SIGNATURE_BLOCK}"
         )
     return {
         "work_order_id": work_order.get("id"),
@@ -157,6 +159,8 @@ def _openai_draft(work_order: dict[str, Any], context: dict[str, Any], policy_ti
             "content": (
                 "You draft concise business email replies. "
                 "Tone rules: professional, concise, friendly undertone, clear CTA, no em dashes. "
+                "Never use placeholders like [Your Name], [Company], or bracketed template fields. "
+                f"Always end with this exact signature block: '{SIGNATURE_BLOCK}'. "
                 "Return only JSON with keys: draft_subject, draft_body, confidence, rationale, citations."
             ),
         },
@@ -381,9 +385,10 @@ def publish_agent(
             "fact_status": fact_checked["fact_status"],
             "draft_agent": draft.get("draft_agent"),
             "draft_confidence": policy_result["draft_confidence"],
+            "auto_send_enabled": AUTO_SEND_ENABLED,
         },
         "created_at": _now(),
-        "send": True,
+        "send": AUTO_SEND_ENABLED,
     }
     for key in (
         "message_id",
