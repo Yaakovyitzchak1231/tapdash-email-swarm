@@ -140,7 +140,7 @@ DATABASE_URL=postgresql://... python3 orchestrator_runner.py
 
 ## Agent Swarm Worker (LangGraph path)
 
-Draft-only swarm worker path (keeps legacy daemon as fallback):
+Swarm worker path with automatic ingestion, stale-job recovery, and DB-based publish dispatch (keeps legacy daemon as fallback):
 
 ```bash
 DATABASE_URL=postgresql://... python3 swarm_worker_runner.py --once
@@ -151,6 +151,15 @@ Loop mode:
 ```bash
 DATABASE_URL=postgresql://... python3 swarm_worker_runner.py --interval-seconds 10
 ```
+
+Useful env vars:
+
+- `SWARM_ENABLE_INGEST` (default: `true`)
+- `SWARM_ACTIONABLE_PATH` (default: `INTAKE_STATE_DIR/actionable_work_orders.jsonl`)
+- `SWARM_INGEST_STATE_PATH` (default: `INTAKE_STATE_DIR/swarm_ingest_state.json`)
+- `SWARM_ENABLE_DISPATCH` (default: `true`)
+- `SWARM_STALE_TIMEOUT_SECONDS` (default: `900`)
+- `SWARM_PUBLISH_MAX_ATTEMPTS` (default: `5`)
 
 ## Human Review Actions API
 

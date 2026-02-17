@@ -8,6 +8,8 @@ All roadmap, architecture, and delivery decisions should align to this file.
 
 ## Current Baseline (already running)
 - Platform: Railway project `industrious-youth`, service `pipeline`.
+- Shadow runtime: Railway service `swarm-worker` (LangGraph swarm worker).
+- Durable store: Railway service `Postgres` (workflow + queue tables).
 - Ingress: `POST /zapier/email-forward` on the intake service.
 - Processing: intake filter, work-order creation, policy tiering, multi-stage draft pipeline, publish sender.
 - Persistence: JSONL files on attached volume `/data`.
@@ -46,6 +48,23 @@ The system now supports intelligent LLM drafting, but it still needs durable sta
 - Test coverage:
   - Unit suite passing, including new tests for OpenAI draft path and no-send publish behavior.
   - End-to-end runs validated intake -> actionable -> draft -> escalation/publish artifact generation.
+- Swarm infrastructure completed:
+  - `orchestrator/*` runtime + DB schema scaffold.
+  - `swarm_langgraph/*` supervisor + specialist graph runtime.
+  - `swarm_jobs` queue + retry/dead-letter flow.
+  - Railway `swarm-worker` and `Postgres` services deployed.
+- Monday swarm agents completed:
+  - `monday_coordinator_agent`
+  - `monday_contact_subagent`
+  - `monday_deal_subagent`
+  - `monday_updates_subagent`
+  - `monday_context` stage persisted in live workflow events.
+- Durable swarm execution path completed:
+  - Automatic actionable stream ingestion into `swarm_jobs` (`swarm_ingest.py` + runner integration).
+  - DB-based publish dispatcher from `publish_queue` to webhook (`swarm_publish_dispatcher.py`).
+  - Stale `running` job recovery/reaper in queue + worker loop.
+  - Graph thread enrichment node integrated (`graph_context`) with structured merge into context pack.
+  - Regression coverage added; full suite green (`42` tests).
 
 ## In Progress
 - Quality tuning for generated replies:
@@ -62,11 +81,10 @@ The system now supports intelligent LLM drafting, but it still needs durable sta
   - Added `swarm_langgraph/` supervisor + specialist runtime and queue worker scaffold.
   - Added `swarm_jobs` queue schema with retry/dead-letter lifecycle.
   - Added Monday specialist layer in swarm (`monday_coordinator_agent` + contact/deal/updates subagents).
+  - Verified live shadow execution (`queued -> running -> done`) and persisted workflow events.
 
 ## Not Started
-- Outlook/Graph thread retrieval and draft-in-thread publish path.
-- Monday CRM enrichment in live context assembly.
-- Queue/event-driven worker split beyond single daemon process.
+- Outlook draft-in-thread publish path.
 - Human review dashboard/UX for escalations.
 
 ## Target State (what we are building)
@@ -160,10 +178,9 @@ Current state:
 - Postgres schema scaffold created (`orchestrator/schema.sql`).
 - Durable runtime scaffold created (`orchestrator/runtime.py`, `orchestrator/store.py`, `orchestrator/stages.py`).
 - LangGraph swarm scaffold created (`swarm_langgraph/*`, `swarm_worker_runner.py`).
+- Railway shadow services running (`swarm-worker`, `Postgres`).
 Remaining:
-- Wire queue-driven execution against Postgres in Railway.
-- Migrate read/write paths from JSONL artifacts to DB-backed artifacts.
-- Add replay/retry semantics per stage.
+- Complete JSONL-to-DB operational cutover with rollback toggle.
 
 ## Phase 3: Context Enrichment
 - Add Graph thread retrieval and Monday enrichment into context pack.
@@ -171,7 +188,13 @@ Remaining:
 - Exit criteria:
   - draft quality clearly uses thread + CRM facts
   - publish payload carries full thread metadata
-Phase status: Not started.
+Phase status: In progress.
+Current state:
+- Monday enrichment subagents are live in swarm context.
+- Graph thread enrichment node is implemented in swarm context (credential-gated no-op when unset).
+Remaining:
+- Validate Graph enrichment quality against live traffic once Graph credentials are provisioned.
+- Improve Monday board/column mapping and confidence calibration.
 
 ## Phase 4: Agentic Decomposition
 - Split monolithic daemon into workers (intake/context/draft/qa/publish).
@@ -198,16 +221,27 @@ Remaining:
 - Build minimal dashboard/UI and triage workflow.
 
 ## Immediate Priorities
-1. Finish Phase 1 quality hardening:
-   - expand regression set and tune quality heuristics for production readiness.
-   - finalize quality acceptance bar before enabling any auto-send path.
-2. Keep safety-first outbound mode:
+1. Keep safety-first outbound mode:
    - keep `AUTO_SEND_ENABLED=false` until output quality is approved.
-3. Start Phase 2:
-   - wire Postgres orchestrator scaffold into Railway shadow-run mode.
-   - implement DB-backed artifact read/write parity checks vs JSONL.
-4. Start Phase 3:
-   - add Graph thread fetch and Monday enrichment to context assembly.
+2. Complete core functionality (ordered):
+   - verify Railway env wiring for ingestion/dispatch/reaper toggles in production service.
+3. Complete context fidelity:
+   - validate Graph thread retrieval + merge with Monday context on real messages.
+   - tune quality/matching with real samples.
+4. Cutover:
+   - make swarm publish path primary.
+   - keep legacy daemon path as rollback.
+
+## Fully Functional Checklist
+- [x] Swarm runtime scaffold implemented.
+- [x] Monday coordinator + subagents implemented.
+- [x] Shadow deployment live in Railway.
+- [x] Durable Postgres workflow/queue state live.
+- [x] Automatic queue ingestion from intake/work-order flow.
+- [x] Swarm publish dispatcher to Zapier draft webhook.
+- [x] Stale-job recovery/reaper.
+- [x] Graph thread enrichment integrated.
+- [ ] Ops dashboard/alerts for queue failures and dead-letter.
 
 ## Dependencies and Required Secrets
 - `OPENAI_API_KEY`

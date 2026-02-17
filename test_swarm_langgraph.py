@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 
 import unittest
+from datetime import timedelta
 
 from orchestrator.store import InMemoryRunStore
 from swarm_langgraph.queue import InMemorySwarmJobQueue
+from swarm_langgraph.queue import _now
 from swarm_langgraph.supervisor import SwarmSupervisor
 from swarm_langgraph.worker import SwarmWorker
 
@@ -48,6 +50,23 @@ class SwarmLangGraphTests(unittest.TestCase):
 
         job = queue.jobs[0]
         self.assertEqual(job.status, "dead_letter")
+
+    def test_worker_reaper_recovers_stale_running_job(self) -> None:
+        class _NoopSupervisor:
+            def run_work_order(self, work_order):
+                return {"ok": True}
+
+        queue = InMemorySwarmJobQueue()
+        payload = {"id": "wo_stale_1", "sender": "x@example.com", "subject": "test", "body": "test"}
+        queue.enqueue(work_order_id="wo_stale_1", payload=payload)
+        worker = SwarmWorker(supervisor=_NoopSupervisor(), queue=queue, max_attempts=3)
+        claimed = queue.claim_next()
+        self.assertIsNotNone(claimed)
+        queue.jobs[0].locked_at = _now() - timedelta(hours=1)
+
+        recovered = worker.recover_stale_once(stale_after_seconds=60)
+        self.assertEqual(recovered, 1)
+        self.assertEqual(queue.jobs[0].status, "queued")
 
 
 if __name__ == "__main__":

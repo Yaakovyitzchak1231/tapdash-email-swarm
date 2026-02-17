@@ -176,6 +176,7 @@ class PostgresRunStore:
 def _artifact_table_for_stage(stage: str) -> str:
     return {
         "context": "context_packs",
+        "graph_context": "context_packs",
         "monday_context": "context_packs",
         "draft": "drafts",
         "qa": "qa_results",

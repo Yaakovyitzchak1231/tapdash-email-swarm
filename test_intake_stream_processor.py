@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import intake_stream_processor as isp
 
@@ -67,6 +68,36 @@ class IntakeStreamProcessorTests(unittest.TestCase):
         rejected_lines = isp.REJECTED_PATH.read_text(encoding="utf-8").splitlines()
         self.assertEqual(len(actionable_lines), 1)
         self.assertEqual(len(rejected_lines), 3)
+
+    def test_process_once_enqueues_actionable_to_swarm_when_queue_available(self) -> None:
+        self._write_rows(
+            [
+                {
+                    "id": "wo_10",
+                    "sender": "person@acme.com",
+                    "subject": "Need demo",
+                    "email_event_id": "evt_10",
+                }
+            ]
+        )
+
+        class _FakeQueue:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, dict]] = []
+
+            def enqueue(self, work_order_id: str, payload: dict) -> str:
+                self.calls.append((work_order_id, payload))
+                return "job_fake"
+
+        fake_queue = _FakeQueue()
+        with patch.object(isp, "_build_swarm_queue", return_value=fake_queue):
+            stats = isp.process_once(self.store)
+
+        self.assertEqual(stats["actionable"], 1)
+        self.assertEqual(stats["enqueued_swarm_jobs"], 1)
+        self.assertEqual(stats["enqueue_errors"], 0)
+        self.assertEqual(len(fake_queue.calls), 1)
+        self.assertEqual(fake_queue.calls[0][0], "wo_10")
 
 
 if __name__ == "__main__":

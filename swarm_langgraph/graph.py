@@ -16,6 +16,7 @@ class FallbackSwarmGraph:
         self._order: list[NodeFn] = [
             nodes.tier_agent,
             nodes.context_agent,
+            nodes.graph_coordinator_agent,
             nodes.monday_coordinator_agent,
             nodes.draft_agent,
             nodes.tone_agent,
@@ -45,6 +46,7 @@ def build_swarm_graph(nodes: SwarmNodes | None = None) -> Any:
     graph = StateGraph(SwarmState)
     graph.add_node("tier_agent", nodes.tier_agent)
     graph.add_node("context_agent", nodes.context_agent)
+    graph.add_node("graph_coordinator_agent", nodes.graph_coordinator_agent)
     graph.add_node("monday_coordinator_agent", nodes.monday_coordinator_agent)
     graph.add_node("draft_agent", nodes.draft_agent)
     graph.add_node("tone_agent", nodes.tone_agent)
@@ -55,7 +57,8 @@ def build_swarm_graph(nodes: SwarmNodes | None = None) -> Any:
 
     graph.add_edge(START, "tier_agent")
     graph.add_edge("tier_agent", "context_agent")
-    graph.add_edge("context_agent", "monday_coordinator_agent")
+    graph.add_edge("context_agent", "graph_coordinator_agent")
+    graph.add_edge("graph_coordinator_agent", "monday_coordinator_agent")
     graph.add_edge("monday_coordinator_agent", "draft_agent")
     graph.add_edge("draft_agent", "tone_agent")
     graph.add_edge("tone_agent", "fact_agent")

@@ -14,6 +14,8 @@ class SwarmJobQueue(Protocol):
 
     def mark_dead_letter(self, job_id: str, error: str) -> None: ...
 
+    def recover_stale_running(self, stale_after_seconds: int = 900, max_attempts: int = 3, limit: int = 100) -> int: ...
+
 
 class SwarmWorker:
     def __init__(self, supervisor: SwarmSupervisor, queue: SwarmJobQueue, max_attempts: int = 3) -> None:
@@ -35,3 +37,10 @@ class SwarmWorker:
                 return {"job_id": job.job_id, "status": "dead_letter", "error": str(exc)}
             self.queue.mark_retry(job.job_id, str(exc), max_attempts=self.max_attempts)
             return {"job_id": job.job_id, "status": "retry", "error": str(exc)}
+
+    def recover_stale_once(self, stale_after_seconds: int = 900, limit: int = 100) -> int:
+        return self.queue.recover_stale_running(
+            stale_after_seconds=stale_after_seconds,
+            max_attempts=self.max_attempts,
+            limit=limit,
+        )

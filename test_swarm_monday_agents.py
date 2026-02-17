@@ -81,6 +81,34 @@ class SwarmMondayAgentsTests(unittest.TestCase):
         self.assertEqual(ctx.state["monday_context"]["crm_context"]["deal_status"], "Qualified")
         merged = ctx.state["context"]["context"]["crm_enriched_fields"]
         self.assertEqual(merged["deal_status"], "Qualified")
+        self.assertEqual(
+            ctx.state["context"]["context"]["external_context"]["monday"]["crm_context"]["deal_status"],
+            "Qualified",
+        )
+
+    def test_swarm_node_merges_graph_context_into_base_context(self) -> None:
+        nodes = SwarmNodes()
+        ctx = StageContext(
+            work_order={"id": "wo1", "sender": "mario@acme.com", "conversation_id": "conv_1"},
+            state={"context": {"context": {"crm_enriched_fields": {}}}},
+        )
+        state: SwarmState = {
+            "ctx": ctx,
+            "last_result": None,
+            "halt": False,
+            "run_status": "running",
+            "error": None,
+            "output": {},
+        }
+        graph_payload = {
+            "enabled": True,
+            "thread_context": {"message_count": 2, "participants": ["mario@acme.com"]},
+        }
+        with patch("swarm_langgraph.nodes.graph_coordinator_agent", return_value=graph_payload):
+            nodes.graph_coordinator_agent(state)
+
+        self.assertEqual(ctx.state["graph_context"]["thread_context"]["message_count"], 2)
+        self.assertEqual(ctx.state["context"]["context"]["graph_thread"]["thread_context"]["message_count"], 2)
 
 
 if __name__ == "__main__":

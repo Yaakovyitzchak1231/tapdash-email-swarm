@@ -29,6 +29,7 @@ class SwarmJob:
     payload: dict[str, Any]
     attempt: int
     status: str
+    locked_at: datetime | None = None
 
 
 class InMemorySwarmJobQueue:
@@ -53,6 +54,7 @@ class InMemorySwarmJobQueue:
             if job.status == "queued":
                 job.status = "running"
                 job.attempt += 1
+                job.locked_at = _now()
                 return job
         return None
 
@@ -60,6 +62,7 @@ class InMemorySwarmJobQueue:
         for job in self.jobs:
             if job.job_id == job_id:
                 job.status = "done"
+                job.locked_at = None
                 return
 
     def mark_retry(self, job_id: str, error: str, max_attempts: int = 3) -> None:
@@ -70,6 +73,7 @@ class InMemorySwarmJobQueue:
                 job.status = "dead_letter"
             else:
                 job.status = "queued"
+            job.locked_at = None
             job.payload["last_error"] = error
             return
 
@@ -77,8 +81,26 @@ class InMemorySwarmJobQueue:
         for job in self.jobs:
             if job.job_id == job_id:
                 job.status = "dead_letter"
+                job.locked_at = None
                 job.payload["last_error"] = error
                 return
+
+    def recover_stale_running(self, stale_after_seconds: int = 900, max_attempts: int = 3, limit: int = 100) -> int:
+        cutoff = _now() - timedelta(seconds=max(1, stale_after_seconds))
+        recovered = 0
+        for job in self.jobs:
+            if recovered >= limit:
+                break
+            if job.status != "running" or not job.locked_at or job.locked_at > cutoff:
+                continue
+            if job.attempt >= max_attempts:
+                job.status = "dead_letter"
+            else:
+                job.status = "queued"
+            job.locked_at = None
+            job.payload["last_error"] = "stale_timeout_recovered"
+            recovered += 1
+        return recovered
 
 
 class PostgresSwarmJobQueue:
@@ -132,7 +154,7 @@ class PostgresSwarmJobQueue:
                         updated_at = now()
                     from candidate c
                     where s.job_id = c.job_id
-                    returning s.job_id, s.work_order_id, s.payload, s.attempt, s.status
+                    returning s.job_id, s.work_order_id, s.payload, s.attempt, s.status, s.locked_at
                     """,
                     (self.worker_id,),
                 )
@@ -146,6 +168,7 @@ class PostgresSwarmJobQueue:
             payload=row[2],
             attempt=row[3],
             status=row[4],
+            locked_at=row[5],
         )
 
     def mark_done(self, job_id: str) -> None:
@@ -220,3 +243,36 @@ class PostgresSwarmJobQueue:
                     (error, job_id),
                 )
             conn.commit()
+
+    def recover_stale_running(self, stale_after_seconds: int = 900, max_attempts: int = 3, limit: int = 100) -> int:
+        stale_after_seconds = max(1, int(stale_after_seconds))
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    with candidate as (
+                        select job_id, attempt
+                        from swarm_jobs
+                        where status = 'running'
+                          and locked_at is not null
+                          and locked_at <= (now() - make_interval(secs => %s))
+                        order by locked_at asc
+                        limit %s
+                        for update skip locked
+                    )
+                    update swarm_jobs s
+                    set status = case when c.attempt >= %s then 'dead_letter' else 'queued' end,
+                        last_error = 'stale_timeout_recovered',
+                        locked_at = null,
+                        worker_id = null,
+                        available_at = now(),
+                        updated_at = now()
+                    from candidate c
+                    where s.job_id = c.job_id
+                    returning s.job_id
+                    """,
+                    (stale_after_seconds, max(1, int(limit)), max_attempts),
+                )
+                rows = cur.fetchall()
+            conn.commit()
+        return len(rows)

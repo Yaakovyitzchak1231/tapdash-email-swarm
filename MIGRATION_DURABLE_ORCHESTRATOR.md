@@ -24,20 +24,32 @@ Migrate from JSONL daemon-only orchestration to durable Postgres-backed workflow
 - `swarm_langgraph/` package:
   - `graph.py`: LangGraph graph (fallback executor if dependency missing).
   - `nodes.py`: specialist agents (tier/context/draft/tone/fact/qa/policy/publish).
+  - `graph_agents.py`: optional Graph/Outlook thread enrichment node.
   - `monday_agents.py`: Monday coordinator + subagents for contact/deal/update context.
   - `supervisor.py`: supervisor execution + artifact/event persistence.
   - `queue.py`: in-memory and Postgres `swarm_jobs` queue with retry/dead-letter.
   - `worker.py`: queue consumer loop for production worker service.
 - `swarm_worker_runner.py`: swarm worker entrypoint.
+- `swarm_ingest.py`: actionable stream -> `swarm_jobs` ingestion adapter with offset state.
+- `swarm_publish_dispatcher.py`: DB publish queue dispatcher with idempotent status lifecycle.
 
 ## Migration Steps
-1. Stand up Postgres and set `DATABASE_URL` in Railway.
-2. Run `orchestrator_runner.py` in non-prod against copied/sample work orders.
-3. Verify table writes and parity with JSONL outputs.
-4. Add queue/event ingestion contract for run triggering (`swarm_jobs`).
-5. Shadow-run orchestrator in production (no publishing side effects).
-6. Cut over publish decisioning to Postgres-backed run state.
-7. Keep legacy daemon available for fast rollback until two weeks of stable operation.
+1. [x] Stand up Postgres and set `DATABASE_URL` in Railway.
+2. [x] Add queue/event ingestion contract (`swarm_jobs`) and worker loop.
+3. [x] Deploy shadow swarm worker in Railway with draft-only mode.
+4. [x] Verify durable writes in live shadow runs (`workflow_runs`, `workflow_events`).
+5. [x] Add automatic ingestion from intake/work orders into `swarm_jobs`.
+6. [x] Add DB-based publish dispatcher from swarm output to Zapier drafts.
+7. [x] Add stuck-job reaper for stale `running` jobs.
+8. [x] Add Graph thread enrichment and merge with Monday context.
+9. [ ] Cut over publish decisioning to swarm DB-backed path.
+10. [ ] Keep legacy daemon hot as rollback for two weeks after cutover.
+
+## Remaining Work To Full Functionality (Execution Order)
+1. Operational readiness:
+   - queue depth/failure/dead-letter monitoring and alerts.
+2. Cutover:
+   - switch primary publish source to swarm path, preserve rollback toggle.
 
 ## Rollback Plan
 - If orchestration errors or latency spikes:
@@ -48,5 +60,6 @@ Migrate from JSONL daemon-only orchestration to durable Postgres-backed workflow
 ## Exit Criteria for Cutover
 - Durable workflow records for all processed work orders.
 - Stage-level observability from `workflow_events`.
+- Automatic ingestion and publish dispatch running without manual DB inserts.
 - No regression in escalation safety behavior.
 - Human review path unchanged.

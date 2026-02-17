@@ -57,8 +57,20 @@ create table if not exists publish_queue (
     run_id text not null references workflow_runs(run_id) on delete cascade,
     work_order_id text not null,
     payload jsonb not null,
+    dispatch_status text not null default 'queued' check (dispatch_status in ('queued', 'running', 'dispatched', 'dead_letter')),
+    dispatch_attempts integer not null default 0,
+    dispatched_at timestamptz null,
+    last_error text null,
     created_at timestamptz not null
 );
+
+alter table publish_queue add column if not exists dispatch_status text not null default 'queued';
+alter table publish_queue add column if not exists dispatch_attempts integer not null default 0;
+alter table publish_queue add column if not exists dispatched_at timestamptz null;
+alter table publish_queue add column if not exists last_error text null;
+
+create index if not exists idx_publish_queue_dispatch_status_created_at
+    on publish_queue(dispatch_status, created_at);
 
 create table if not exists swarm_jobs (
     job_id text primary key,

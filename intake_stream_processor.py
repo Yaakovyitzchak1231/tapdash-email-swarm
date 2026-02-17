@@ -18,6 +18,13 @@ PROCESSED_KEYS_PATH = STATE_DIR / "processed_keys.json"
 ACTIONABLE_PATH = STATE_DIR / "actionable_work_orders.jsonl"
 REJECTED_PATH = STATE_DIR / "rejected_work_orders.jsonl"
 STATS_PATH = STATE_DIR / "intake_stats.json"
+SWARM_DIRECT_ENQUEUE_ENABLED = os.environ.get("SWARM_DIRECT_ENQUEUE_ENABLED", "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+SWARM_QUEUE_WORKER_ID = os.environ.get("SWARM_QUEUE_WORKER_ID", "intake-enqueue").strip()
 
 
 @dataclass
@@ -65,6 +72,21 @@ def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(payload, separators=(",", ":")) + "\n")
+
+
+def _build_swarm_queue():
+    if not SWARM_DIRECT_ENQUEUE_ENABLED:
+        return None
+    database_url = os.environ.get("DATABASE_URL", "").strip()
+    if not database_url:
+        return None
+    try:
+        from swarm_langgraph.queue import PostgresSwarmJobQueue
+
+        return PostgresSwarmJobQueue(database_url=database_url, worker_id=SWARM_QUEUE_WORKER_ID)
+    except Exception as exc:
+        print(f"intake_stream_processor: failed to initialize swarm queue: {exc}")
+        return None
 
 
 def _dedupe_key(order: dict[str, Any]) -> str:
@@ -125,10 +147,13 @@ def decide(order: dict[str, Any], seen_keys: set[str]) -> IntakeDecision:
 def process_once(work_order_store: Path = WORK_ORDER_STORE) -> dict[str, int]:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     seen = set(_load_json(PROCESSED_KEYS_PATH, {"keys": []}).get("keys", []))
+    swarm_queue = _build_swarm_queue()
 
     stats = {
         "processed": 0,
         "actionable": 0,
+        "enqueued_swarm_jobs": 0,
+        "enqueue_errors": 0,
         "rejected_duplicate": 0,
         "rejected_invalid_mapping": 0,
         "rejected_likely_noise": 0,
@@ -149,6 +174,15 @@ def process_once(work_order_store: Path = WORK_ORDER_STORE) -> dict[str, int]:
         if decision.status == "actionable":
             stats["actionable"] += 1
             _append_jsonl(ACTIONABLE_PATH, record)
+            if swarm_queue is not None:
+                try:
+                    swarm_queue.enqueue(work_order_id=str(order.get("id", "")), payload=order)
+                    stats["enqueued_swarm_jobs"] += 1
+                except Exception as exc:
+                    stats["enqueue_errors"] += 1
+                    print(
+                        f"intake_stream_processor: enqueue failed for work_order_id={order.get('id')}: {type(exc).__name__}"
+                    )
         elif decision.reason == "duplicate":
             stats["rejected_duplicate"] += 1
             _append_jsonl(REJECTED_PATH, record)
