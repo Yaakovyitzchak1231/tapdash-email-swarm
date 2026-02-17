@@ -151,6 +151,7 @@ def process_once(work_order_store: Path = WORK_ORDER_STORE) -> dict[str, int]:
             _append_jsonl(ACTIONABLE_PATH, record)
         elif decision.reason == "duplicate":
             stats["rejected_duplicate"] += 1
+            _append_jsonl(REJECTED_PATH, record)
         elif decision.reason == "invalid_mapping":
             stats["rejected_invalid_mapping"] += 1
             _append_jsonl(REJECTED_PATH, record)

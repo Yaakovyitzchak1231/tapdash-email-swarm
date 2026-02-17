@@ -1,5 +1,7 @@
 # TapDash Email Swarm Production Deploy
 
+This deployment guide implements the active roadmap defined in `PLAN_EMAIL_SWARM.md`.
+
 This folder provisions an always-on host for:
 
 - `email_work_order_service.py` (`127.0.0.1:8080`)

@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import pipeline_daemon
 
@@ -60,6 +61,50 @@ class PipelineDaemonTests(unittest.TestCase):
 
             publish_rows = (pipeline_dir / "draft_publish_payloads.jsonl").read_text(encoding="utf-8").splitlines()
             self.assertEqual(len(publish_rows), 1)
+
+    def test_draft_agent_uses_openai_when_available(self) -> None:
+        work_order = {
+            "id": "wo_test_openai",
+            "sender": "person@example.com",
+            "subject": "Need a proposal",
+            "body": "Can you send details?",
+            "labels": ["sales"],
+        }
+        context = pipeline_daemon.context_agent(work_order)
+
+        fake_response = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "draft_subject": "Re: Need a proposal",
+                                "draft_body": "Hi there, here are details and next steps.",
+                                "confidence": 0.91,
+                                "rationale": "Uses provided sender intent and asks a clear CTA.",
+                                "citations": ["crm:contact", "thread:latest"],
+                            }
+                        )
+                    }
+                }
+            ]
+        }
+
+        with patch.object(pipeline_daemon, "OPENAI_API_KEY", "sk-test"):
+            with patch("pipeline_daemon.requests.post") as mock_post:
+                mock_post.return_value.raise_for_status.return_value = None
+                mock_post.return_value.json.return_value = fake_response
+
+                draft = pipeline_daemon.draft_agent(
+                    work_order=work_order,
+                    context=context,
+                    policy_tier="B",
+                )
+
+        self.assertEqual(draft["draft_agent"], "openai")
+        self.assertEqual(draft["draft_subject"], "Re: Need a proposal")
+        self.assertGreaterEqual(draft["confidence"], 0.9)
+        self.assertEqual(draft["to"], "person@example.com")
 
 
 if __name__ == "__main__":

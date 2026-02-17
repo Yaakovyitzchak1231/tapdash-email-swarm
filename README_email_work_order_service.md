@@ -1,5 +1,7 @@
 # Inbound Email -> Work Orders
 
+> Canonical plan: `PLAN_EMAIL_SWARM.md` is the single source of truth for architecture and roadmap. This README documents the current implementation baseline only.
+
 This service monitors inbound email events via HTTP and creates work orders with preliminary labels.
 
 ## Run
